@@ -1,26 +1,91 @@
-#include <Arduino.h>
-#include "Wire.h" //allows communication over i2c devices
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH1106.h>
 
-const int pressureInput = A0; //select the analog input pin for the pressure transducer
-const int pressureZero = 102.4; //analog reading of pressure transducer at 0psi
-const int pressureMax = 921.6; //analog reading of pressure transducer at 100psi
-const int pressuretransducermaxPSI = 150; //psi value of transducer being used
-const int baudRate = 9600; //constant integer to set the baud rate for serial monitor
-const int sensorreadDelay = 100; //constant integer to set the sensor read delay in milliseconds
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
 
-float pressureValue = 0; //variable to store the value coming from the pressure transducer
+#define SEALEVELPRESSURE_HPA (1013.25)
+Adafruit_BMP280 bme;
 
-void setup() //setup routine, runs once when system turned on or reset
+#define OLED_RESET -1
+Adafruit_SH1106 display(OLED_RESET);
+
+// Main
+const int baudRate = 9600;
+const int Vin = 5;
+
+// Temperature
+const int temperatureInput = A0;
+const float knownTemperatureResistor = 2000;
+
+float unknownTemperatureResistor = 0;
+float temperatureValue = 0;
+
+// Pressure
+const int pressureInput = A6;
+const int pressureZero = 102.4; // raw value at 0 psi 0.5v
+const int pressureMax = 921.6; // raw value at max psi 4.5v
+const int pressureTransducermaxPSI = 150;
+
+float pressureValue = 0;
+float pressureValueBar = 0;
+
+void setup()
 {
-  Serial.begin(baudRate); //initializes serial communication at set baud rate bits per second
+    Serial.begin(baudRate);
+
+    display.begin(SH1106_SWITCHCAPVCC, 0x3C);
+
+    if (!bme.begin(0x76)) {
+        Serial.println("Could not find a valid BME280 sensor, check wiring!");
+    }
+
+    display.setTextSize(2);
+    display.setTextColor(WHITE);
+
+    Serial.println("Starting loop!");
 }
 
-void loop() //loop routine runs over and over again forever
+void loop()
 {
-  pressureValue = analogRead(pressureInput); //reads value from input pin and assigns to variable
-  pressureValue = ((analogRead(pressureInput) - pressureZero) * pressuretransducermaxPSI) / (pressureMax - pressureZero); //conversion equation to convert analog reading to psi
+    // Temperature
+    // GND- 2K - A0 - 5V
+    //  |-\/\/-|-\/\/-|
+    unknownTemperatureResistor = knownTemperatureResistor * ((Vin / ((analogRead(temperatureInput) * Vin) / 1024.0)) -1);
+    temperatureValue = -30.5 * log(unknownTemperatureResistor / 1741.);
+    //T = 1350 * log(unknownTemperatureResistor / 200); // ^2
 
-  Serial.print(pressureValue, 1); //prints value from previous line to serial
-  Serial.println(" bar"); //prints label to serial
-  delay(sensorreadDelay); //delay in milliseconds between read values
+    // Pressure
+    pressureValue = ((analogRead(pressureInput) - pressureZero) * pressureTransducermaxPSI) / (pressureMax - pressureZero);
+    pressureValueBar = pressureValue * 0.0689475729;
+
+    display.clearDisplay();
+    display.setCursor(0, 0);
+
+//    display.print("R:");
+//    display.println(unknownTemperatureResistor);
+
+    display.print(temperatureValue);
+    display.println(" *C");
+
+    display.print(pressureValueBar);
+    display.println(" bar");
+
+//    display.print(bme.readTemperature());
+//    display.println(" *C");
+//
+//    display.print(bme.readPressure() / 100.0F);
+//    display.println("hPa press");
+//
+//    display.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
+//    display.println("m atti");
+
+    //display.print(bme.readHumidity());
+    //display.println("h%");
+
+    display.display();
+
+    delay(50);
 }
