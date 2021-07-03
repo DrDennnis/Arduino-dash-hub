@@ -24,6 +24,19 @@ int temperatureRaw = 0;
 float unknownTemperatureResistor = 0;
 float temperatureValue = 0;
 
+//////////////
+#define coolantsensorDivider 2970   //defines the resistor value that is in series in the voltage divider
+#define coolantsensorPin A0         //defines the analog pin of the input voltage from the voltage divider
+#define NUMSAMPLES 5                //defines the number of samples to be taken for a smooth average
+
+const float steinconstA = 0.00132774106461327;        //steinhart equation constant A, determined from wikipedia equations
+const float steinconstB = 0.000254470874104285;       //steinhart equation constant B, determined from wikipedia equations
+const float steinconstC = 0.000000101216538378909;    //steinhart equation constant C, determined from wikipedia equations
+
+int samples[NUMSAMPLES];                              //variable to store number of samples to be taken
+//////////////
+
+
 // Pressure
 const int pressureInput = A1;
 const int pressureZero = 102.4; // raw value at 0 psi 0.5v
@@ -55,15 +68,46 @@ void loop()
     // Temperature
     // GND- 2K - A0 - 5V
     //  |-\/\/-|-\/\/-|
-    temperatureRaw = analogRead(temperatureInput);
-    unknownTemperatureResistor = knownTemperatureResistor * ((Vin / ((temperatureRaw * Vin) / 1024.0)) -1);
+    //temperatureRaw = analogRead(temperatureInput);
+    //float voltage = (temperatureRaw / 1023.0) * 5;
+    //unknownTemperatureResistor = knownTemperatureResistor * ((Vin / ((temperatureRaw * Vin) / 1024.0)) -1);
 
-    float Vout = (Vin * temperatureRaw) / 1023;    // Convert Vout to volts
-    float R = knownTemperatureResistor * (1 / ((Vin / Vout) - 1));  // Formula to calculate tested resistor's value
-
-    temperatureValue = -30.5 * log(unknownTemperatureResistor / 1741.);
+    //temperatureValue = -30.5 * log(unknownTemperatureResistor / 1741.);
     //temperatureValue = 1350 * pow(log(unknownTemperatureResistor / 200), 2); // ^2
     //temperatureValue = 560 * pow(log(unknownTemperatureResistor / 260), 2); // ^2
+
+///////////
+    uint8_t i;                                          //integer for loop
+    float average;                                      //decimal for average
+    
+    for (i=0; i<NUMSAMPLES; i++) {                      
+        samples[i] = analogRead(coolantsensorPin);        //takes samples at number defined with a short delay between samples
+        delay(10);
+    }
+
+    average = 0;
+  for (i=0; i< NUMSAMPLES; i++) {
+    average += samples[i];                            //adds all number of samples together
+  }
+  average /= NUMSAMPLES;                              //divides by number of samples to output the average
+
+  Serial.print("Average Analog Coolant Reading = ");
+  Serial.println(average);                                        //analog value at analog pin into arduino
+  average = (coolantsensorDivider*average)/(1023-average);        //conversion equation to read resistance from voltage divider
+  Serial.print("Coolant Sensor Resistance = ");
+  Serial.println(average);
+
+  float steinhart;                              //steinhart equation to estimate temperature value at any resistance from curve of thermistor sensor
+  steinhart = log(average);                     //lnR
+  steinhart = pow(steinhart,3);                 //(lnR)^3
+  steinhart *= steinconstC;                     //C*((lnR)^3)
+  steinhart += (steinconstB*(log(average)));    //B*(lnR) + C*((lnR)^3)
+  steinhart += steinconstA;                     //Complete equation, 1/T=A+BlnR+C(lnR)^3
+  steinhart = 1.0/steinhart;                    //Inverse to isolate for T
+  steinhart -= 273.15;                          //Conversion from kelvin to celcius
+
+
+///////////
 
     // Pressure
     pressureRaw = analogRead(pressureInput);
@@ -73,13 +117,7 @@ void loop()
     display.clearDisplay();
     display.setCursor(0, 0);
 
-    display.print("R:");
-    display.println(unknownTemperatureResistor);
-
-    display.print("Rx:");
-    display.println(R);
-
-    display.print(temperatureValue);
+    display.print(steinhart);
     display.println(" *C");
 
     display.print(pressureValueBar);
