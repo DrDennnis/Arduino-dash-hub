@@ -20,15 +20,17 @@ const int Vin = 5;
 const int temperatureInput = A0;
 const float knownTemperatureResistor = 2000;
 
+int temperatureRaw = 0;
 float unknownTemperatureResistor = 0;
 float temperatureValue = 0;
 
 // Pressure
-const int pressureInput = A6;
+const int pressureInput = A1;
 const int pressureZero = 102.4; // raw value at 0 psi 0.5v
 const int pressureMax = 921.6; // raw value at max psi 4.5v
 const int pressureTransducermaxPSI = 150;
 
+float pressureRaw = 0;
 float pressureValue = 0;
 float pressureValueBar = 0;
 
@@ -53,19 +55,29 @@ void loop()
     // Temperature
     // GND- 2K - A0 - 5V
     //  |-\/\/-|-\/\/-|
-    unknownTemperatureResistor = knownTemperatureResistor * ((Vin / ((analogRead(temperatureInput) * Vin) / 1024.0)) -1);
+    temperatureRaw = analogRead(temperatureInput);
+    unknownTemperatureResistor = knownTemperatureResistor * ((Vin / ((temperatureRaw * Vin) / 1024.0)) -1);
+
+    float Vout = (Vin * temperatureRaw) / 1023;    // Convert Vout to volts
+    float R = knownTemperatureResistor * (1 / ((Vin / Vout) - 1));  // Formula to calculate tested resistor's value
+
     temperatureValue = -30.5 * log(unknownTemperatureResistor / 1741.);
-    //T = 1350 * log(unknownTemperatureResistor / 200); // ^2
+    //temperatureValue = 1350 * pow(log(unknownTemperatureResistor / 200), 2); // ^2
+    //temperatureValue = 560 * pow(log(unknownTemperatureResistor / 260), 2); // ^2
 
     // Pressure
-    pressureValue = ((analogRead(pressureInput) - pressureZero) * pressureTransducermaxPSI) / (pressureMax - pressureZero);
+    pressureRaw = analogRead(pressureInput);
+    pressureValue = ((pressureRaw - pressureZero) * pressureTransducermaxPSI) / (pressureMax - pressureZero);
     pressureValueBar = pressureValue * 0.0689475729;
 
     display.clearDisplay();
     display.setCursor(0, 0);
 
-//    display.print("R:");
-//    display.println(unknownTemperatureResistor);
+    display.print("R:");
+    display.println(unknownTemperatureResistor);
+
+    display.print("Rx:");
+    display.println(R);
 
     display.print(temperatureValue);
     display.println(" *C");
@@ -87,5 +99,5 @@ void loop()
 
     display.display();
 
-    delay(50);
+    delay(100);
 }
