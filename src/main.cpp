@@ -99,7 +99,7 @@ void loop()
 
     display.setCursor(85, 55);
     display.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
-    display.print("m /\\");
+    display.print("m");
     
     display.setTextSize(3);
 
