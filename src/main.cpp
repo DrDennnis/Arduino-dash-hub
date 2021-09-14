@@ -39,7 +39,7 @@ void setup()
     display.begin(SH1106_SWITCHCAPVCC, 0x3C);
 
     if (!bme.begin(0x76)) {
-        Serial.println("Could not find a valid BME280 sensor, check wiring!");
+        Serial.println("Could not find BME280 sensor!");
     }
 
     display.setTextSize(3);
@@ -87,15 +87,23 @@ void loop()
     display.setCursor(110, 30);
     display.print(".");
 
-//    display.print(bme.readTemperature());
-//    display.println(" *C");
-//
-//    display.print(bme.readPressure() / 100.0F);
-//    display.println("hPa press");
-//
-//    display.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
-//    display.println("m atti");
+    // BME small display
+    display.setTextSize(1);
+    
+    display.setCursor(0, 55);
+    display.print(bme.readTemperature());
+    display.print("c");
+    
+    //display.print(bme.readPressure() / 100.0F);
+    //display.print("hPa");
 
+    display.setCursor(85, 55);
+    display.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
+    display.print("m /\\");
+    
+    display.setTextSize(3);
+
+    // Not possible with current sensors
     //display.print(bme.readHumidity());
     //display.println("h%");
 
