@@ -1,132 +1,104 @@
+#include <Arduino.h>
+#include <SoftwareSerial.h>
 #include <SPI.h>
 #include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SH1106.h>
 
-#include <Adafruit_Sensor.h>
-#include <Adafruit_BMP280.h>
-#define SEALEVELPRESSURE_HPA (1013.25)
-Adafruit_BMP280 bme;
+const byte rxPin = 2;
+const byte txPin = 3;
+SoftwareSerial mySerial(rxPin, txPin);
 
-#define OLED_RESET -1
-Adafruit_SH1106 display(OLED_RESET);
+const unsigned int MAX_BUFFER_LENGTH = 10;
+byte buf[MAX_BUFFER_LENGTH];
 
-// Main
-const int baudRate = 9600;
-const int Vin = 5;
+// oil Temperature
+// Fill in some datapoints in a Steinhart-Hart model, and fill this in.
+const double knownTemperatureResistor = 150.0; // Get an resistor that should be most accurate at the required temp
+const double c1 = 0.0015104550472979056, c2 = 0.0002489673846169903, c3 = 1.0325123237917102e-8;
 
-// Temperature
-const int temperatureInput = A0;
-const float knownTemperatureResistor = 2000;
-
-float unknownTemperatureResistor = 0;
-float temperatureValue = 0;
-
-// Pressure
-const int pressureInput = A1;
-const int pressureZero = 102.4; // raw value at 0 psi 0.5v
-const int pressureMax = 921.6; // raw value at max psi 4.5v
+// oil Pressure
+const float pressureZero = 102.4; // raw value at 0 psi 0.5v
+const float pressureMax = 921.6; // raw value at max psi 4.5v
 const int pressureTransducermaxPSI = 150;
-
-float pressureRaw = 0;
-float pressureValue = 0;
-float pressureValueBar = 0;
 
 void setup()
 {
-    Serial.begin(baudRate);
-
-    display.begin(SH1106_SWITCHCAPVCC, 0x3C);
-
-    if (!bme.begin(0x76)) {
-        Serial.println("Could not find BME280 sensor!");
-    }
-
-    display.setTextSize(3);
-    display.setTextColor(WHITE);
-
+    Serial.begin(115200);
     Serial.println("Starting loop!");
+
+    // Define pin modes for TX and RX
+    pinMode(rxPin, INPUT);
+    pinMode(txPin, OUTPUT);
+    mySerial.begin(9600);
 }
 
-// note: the _in array should have increasing values
-int multiMap(int val, int* _in, int* _out, uint8_t size)
-{
-  // take care the value is within range
-  // val = constrain(val, _in[0], _in[size-1]);
-  if (val <= _in[0]) return _out[0];
-  if (val >= _in[size-1]) return _out[size-1];
-
-  // search right interval
-  uint8_t pos = 1;  // _in[0] allready tested
-  while(val > _in[pos]) pos++;
-
-  // this will handle all exact "points" in the _in array
-  if (val == _in[pos]) return _out[pos];
-
-  // interpolate in the right segment for the rest
-  return (val - _in[pos-1]) * (_out[pos] - _out[pos-1]) / (_in[pos] - _in[pos-1]) + _out[pos-1];
+void printBufAsHex(byte* buf) {
+  for (unsigned int i = 0; i < MAX_BUFFER_LENGTH; i++) {
+    if (buf[i] < 0x10) {
+      Serial.print("0");
+    }
+    Serial.print(buf[i], HEX);
+    Serial.print(" ");
+  }
+  Serial.println("");
 }
 
-void loop()
-{
-    // Temperature        
-    unknownTemperatureResistor = knownTemperatureResistor * ((Vin / ((analogRead(temperatureInput) * Vin) / 1024.0)) -1);
+//  GND - 1k resistor - A0 - sensor - 5V
+float getTemperatureByPin(int pin) {
+  double adc_raw = analogRead(pin);
+  double voltage = adc_raw / 1024.0 * 5;
+  double resistance = ((1024 * knownTemperatureResistor / adc_raw) - knownTemperatureResistor);
 
-    // GND- 2K - A0 - 5V
-    //  |-\/\/-|-\/\/-|
-    // out[] holds the values wanted in degrees C
-    int out[] = { 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10 };
+  double logR  = log(resistance);
+  double logR3 = logR * logR * logR;
 
-    // in[] holds the measured analogRead() values for defined distances
-    // note: the in array should have increasing values
-    int in[]  = {20, 24, 30, 40, 49, 64, 83, 108, 147, 200, 278, 388, 570, 844, 1286, 2031, 3100 };
-    temperatureValue = multiMap(unknownTemperatureResistor, in, out, 17);
+  // 9.5 is // Dissipation factor (mW/°C)
+  double steinhart = 1.0 / (c1 + c2 * logR + c3 * logR3);
+  return steinhart - voltage * voltage / (9.5 * knownTemperatureResistor) - 273.15;
+}
 
-    // Pressure
-    pressureRaw = analogRead(pressureInput);
-    pressureValue = ((pressureRaw - pressureZero) * pressureTransducermaxPSI) / (pressureMax - pressureZero);
-    pressureValueBar = pressureValue * 0.0689475729;
+float getPressureByPin(int pin) {
+  float pressureRaw = analogRead(pin);
+  float pressureValue = ((pressureRaw - pressureZero) * pressureTransducermaxPSI) / (pressureMax - pressureZero);
 
-    display.clearDisplay();
-    display.setCursor(5, 0);
+  // cool, now lets not get below 0, how do we handle vacuum anyway - vacuum can be in kpa
+  if (pressureValue < 0) {
+    pressureValue = 0;
+  }
 
-//    display.print("R:");
-//    display.println(unknownTemperatureResistor);
+  if (pressureValue > pressureTransducermaxPSI) {
+    pressureValue = 150;
+  }
 
-    display.print(temperatureValue, 1);
-    display.setCursor(90, -14);
-    display.print(".");
-    display.setCursor(105, 0);
-    display.print("C");
+  // From PSI to BAR
+  return pressureValue * 0.0689475729;
+}
 
-    display.setCursor(5, 30);
-    display.print(pressureValueBar, 1);
-    display.setCursor(97, 30);
-    display.print("b");
-    display.setCursor(110, 30);
-    display.print(".");
+float getLambdaByPin(int pin) {
+  float lambdaVoltage = analogRead(pin) * (5.0 / 1023.0);
+  return (0.1621 * lambdaVoltage) + 0.4990;
+}
 
-    // BME small display
-    display.setTextSize(1);
-    
-    display.setCursor(0, 55);
-    display.print(bme.readTemperature());
-    display.print("c");
-    
-    //display.print(bme.readPressure() / 100.0F);
-    //display.print("hPa");
+void loop() {
+  buf[0] = (int)getTemperatureByPin(A0);
+  buf[1] = (int)(getPressureByPin(A1) * 10);
+  buf[2] = (int)(getLambdaByPin(A2) * 100);
+  buf[3] = 0;
+  buf[4] = 0;
+  buf[5] = 0;
+  buf[6] = 0;
+  buf[7] = 0;
 
-    display.setCursor(85, 55);
-    display.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
-    display.print("m");
-    
-    display.setTextSize(3);
+  int checksum = 0;
+  for (unsigned int i = 0; i < (MAX_BUFFER_LENGTH - 2); i++) {
+    checksum ^= buf[i];
+  }
 
-    // Not possible with current sensors
-    //display.print(bme.readHumidity());
-    //display.println("h%");
+  buf[8] = checksum,
+  buf[9] = '\n';
 
-    display.display();
+  // printBufAsHex(buf);
 
-    delay(50);
+  mySerial.write(buf, MAX_BUFFER_LENGTH);
+
+  delay(150);
 }
